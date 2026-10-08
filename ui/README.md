@@ -59,7 +59,7 @@ and `.chainlit/` resolve inside `ui/`.
 | Processing | During the query | Step `Consultando documentos` with output `🔎 Consultando la documentación…` |
 | Answer | `grounded=True` with sources | Answer + `📄 Fuentes utilizadas · N` |
 | No information | `grounded=False` or no sources | `ℹ️ No he encontrado información suficiente` + reason |
-| Error | Backend exception | `⚠️ No he podido conectar…` / `⚠️ Se ha producido un error técnico` |
+| Error | Backend exception | `⚠️ No he podido conectar…` / `⚠️ Límite diario de uso alcanzado` / `⚠️ Se ha producido un error técnico` |
 | Empty question | Message without content | Friendly reminder with an example |
 
 **No information ≠ error**: the first is an expected outcome of grounding;

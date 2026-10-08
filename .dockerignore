@@ -27,5 +27,6 @@ ui/.data/
 .agent-local/
 .files/
 .data/
+deploy.cmd
 **/.chainlit/translations/
 docs-site/

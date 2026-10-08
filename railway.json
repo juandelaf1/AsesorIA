@@ -1,0 +1,6 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "deploy": {
+    "startCommand": "python -c 'import urllib.request,zipfile,os; d=\"/app/chroma_db/corpus_runs/ae121e0628ac4595b09cce0dbfb72205\"; m=d+\"/chroma.sqlite3\"; u=\"https://huggingface.co/juanmanueldlf/asesoria-corpus/resolve/main/corpus.zip\"; os.makedirs(d,exist_ok=True); (not os.path.isfile(m)) and (urllib.request.urlretrieve(u,\"/tmp/c.zip\"), zipfile.ZipFile(\"/tmp/c.zip\").extractall(d)); os.chdir(\"/app/ui\"); os.execvp(\"chainlit\",[\"chainlit\",\"run\",\"app.py\",\"--host\",\"0.0.0.0\",\"--port\",os.environ.get(\"PORT\",\"8000\"),\"--headless\"])'"
+  }
+}

@@ -203,3 +203,63 @@ class RAGPipeline:
                 "total_latency_s": total_latency,
             },
         }
+
+    def answer_query_stream(
+        self, question: str, history: Optional[List[Any]] = None
+    ):
+        """Versión streaming de :meth:`answer_query` (generador síncrono).
+
+        Emite eventos progresivos para que la UI pueda mostrar la respuesta
+        token a token en lugar de esperar a la respuesta completa:
+
+        * ``{"type": "retrieved", "documents": [...], "retrieval_latency_s": float}``
+          tras el retrieval (la UI actualiza su estado «generando…»);
+        * ``{"type": "token", "text": str}`` por cada fragmento de texto del LLM;
+        * ``{"type": "done", "answer": str, "source_documents": [...],
+          "metrics": {...}}`` al finalizar, con la misma forma de ``metrics``
+          que :meth:`answer_query`.
+
+        La consulta autónoma (query rewriting) y el retrieval son idénticos a
+        :meth:`answer_query`; solo la generación se emite progresivamente
+        (``generation_chain.stream``). El consumidor itera el generador —
+        típicamente desde un hilo (`asyncio.to_thread`/`run_in_executor`) para
+        no bloquear el event loop del servidor.
+        """
+        import time
+
+        # 0. Resolución contextual: question + history → consulta autónoma
+        standalone_query = resolve_standalone_query(self.llm, question, history)
+
+        # 1. Retrieval (bloqueante: Chroma) — se emite al terminar
+        t_retrieval_start = time.perf_counter()
+        retrieved_docs = self.retriever.invoke(standalone_query)
+        t_retrieval = round(time.perf_counter() - t_retrieval_start, 3)
+        yield {
+            "type": "retrieved",
+            "documents": retrieved_docs,
+            "retrieval_latency_s": t_retrieval,
+        }
+
+        # 2. Generación token a token (Groq vía LCEL .stream)
+        t_generation_start = time.perf_counter()
+        parts: List[str] = []
+        for chunk in self.generation_chain.stream(
+            {"documents": retrieved_docs, "question": standalone_query}
+        ):
+            text = str(chunk)
+            if not text:
+                continue
+            parts.append(text)
+            yield {"type": "token", "text": text}
+        t_generation = round(time.perf_counter() - t_generation_start, 3)
+
+        yield {
+            "type": "done",
+            "answer": "".join(parts),
+            "source_documents": retrieved_docs,
+            "metrics": {
+                "retrieval_latency_s": t_retrieval,
+                "generation_latency_s": t_generation,
+                "total_latency_s": round(t_retrieval + t_generation, 3),
+            },
+        }
