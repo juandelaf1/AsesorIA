@@ -44,6 +44,7 @@ query-time errors always propagate.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import inspect
 import logging
@@ -253,14 +254,32 @@ async def _call_backend(
     kwargs: dict = {}
     if history is not None and _accepts_keyword(method, "history"):
         kwargs["history"] = history
-    result = (
-        method(question, documents, **kwargs)
-        if _accepts_documents(method)
-        else method(question, **kwargs)
-    )
+
+    def _invoke():
+        return (
+            method(question, documents, **kwargs)
+            if _accepts_documents(method)
+            else method(question, **kwargs)
+        )
+
+    # Sync backends (the real engine included) perform blocking work —
+    # Chroma retrieval + HTTP to the LLM — for tens of seconds. Running
+    # that call directly inside the async Chainlit handler would freeze
+    # the whole event loop (heartbeats, other sessions, uploads): the
+    # call is offloaded to a worker thread instead. Coroutine methods
+    # (async def) are invoked directly on the loop as before.
+    if inspect.iscoroutinefunction(method):
+        result = _invoke()
+    else:
+        result = await asyncio.to_thread(_invoke)
     if inspect.isawaitable(result):
         result = await result
     return result
+
+
+# Sentinel distinguishing "generator exhausted" from a legitimate event
+# returned by the streaming backend (``next(it, sentinel)``).
+_STREAM_END = object()
 
 
 def _translate_engine_sources(payload: dict) -> dict:
@@ -376,6 +395,58 @@ class RagAdapter:
             return await mock.ask(question, documents, labels=labels)
         raw = await _call_backend(self.backend, question, documents, normalized)
         return self.format_response(raw)
+
+    async def ask_stream(
+        self,
+        question: str,
+        documents: list[str],
+        labels: list[str] | None = None,
+        history: list[dict] | None = None,
+    ):
+        """Streaming variant of :meth:`ask` (async generator of events).
+
+        Yields dictionaries:
+
+        * ``{"type": "retrieved", "n_sources": int}`` once the backend has
+          finished retrieval (the UI can show «generando respuesta…»);
+        * ``{"type": "token", "text": str}`` per LLM text fragment;
+        * ``{"type": "response", "response": RAGResponse}`` — ALWAYS the
+          last event, carrying the same normalized contract as ``ask()``.
+
+        Backends without ``query_stream`` (legacy engines, fakes, the demo
+        mock) yield ONLY the final response event, so callers degrade
+        gracefully to the classic single-message path with identical
+        rendering. Errors propagate exactly like ``ask()``.
+        """
+        normalized = normalize_history(history)
+        stream = (
+            getattr(self.backend, "query_stream", None)
+            if self.backend is not None
+            else None
+        )
+        if stream is None:
+            response = await self.ask(question, documents, labels=labels, history=history)
+            yield {"type": "response", "response": response}
+            return
+
+        # The backend exposes a SYNC generator (blocking Chroma/HTTP work).
+        # Each ``next()`` runs in a worker thread so the event loop stays
+        # free between tokens (heartbeats, other sessions, step updates).
+        iterator = iter(stream(question, history=normalized))
+        while True:
+            event = await asyncio.to_thread(next, iterator, _STREAM_END)
+            if event is _STREAM_END:
+                break
+            if not isinstance(event, dict):
+                continue
+            etype = event.get("type")
+            if etype in ("retrieved", "token"):
+                yield event
+            elif etype == "done":
+                yield {
+                    "type": "response",
+                    "response": self.format_response(event),
+                }
 
     def format_response(self, raw: Any) -> RAGResponse:
         """Normalizes any raw response into the frontend contract.

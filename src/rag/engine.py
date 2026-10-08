@@ -77,30 +77,7 @@ class RAGEngine:
             source_docs = result.get("source_documents", [])
             metrics = result.get("metrics", {})
 
-            # Formateo amigable de fuentes para la API/UI
-            formatted_sources = []
-            for doc in source_docs:
-                metadata = doc.metadata or {}
-                source = metadata.get("source", "Documento desconocido")
-                page_start = metadata.get("page")
-                page_end = metadata.get("page_end", page_start)
-
-                if page_start is not None:
-                    if page_end is not None and page_end != page_start:
-                        page_label = f"Págs. {page_start}–{page_end}"
-                    else:
-                        page_label = f"Pág. {page_start}"
-                else:
-                    page_label = "Pág. N/A"
-
-                formatted_sources.append(
-                    {
-                        "source": source,
-                        "page": page_label,
-                        "snippet": doc.page_content[:200]
-                        + ("..." if len(doc.page_content) > 200 else ""),
-                    }
-                )
+            formatted_sources = self._format_sources(source_docs)
 
             payload = {
                 "question": clean_question,
@@ -120,6 +97,96 @@ class RAGEngine:
                 attributes={**metrics, "latency_ms": payload["latency_ms"]},
             )
             return payload
+
+    @staticmethod
+    def _format_sources(source_docs) -> list:
+        """Formatea los documentos recuperados al contrato amigable de fuentes.
+
+        Cada entrada: ``{"source", "page": "Pág. N" | "Págs. N–M",
+        "snippet": primeros 200 caracteres}``. Extraído de :meth:`query` para
+        reutilizarse en :meth:`query_stream` con salida byte-idéntica.
+        """
+        formatted_sources = []
+        for doc in source_docs or []:
+            metadata = doc.metadata or {}
+            source = metadata.get("source", "Documento desconocido")
+            page_start = metadata.get("page")
+            page_end = metadata.get("page_end", page_start)
+
+            if page_start is not None:
+                if page_end is not None and page_end != page_start:
+                    page_label = f"Págs. {page_start}–{page_end}"
+                else:
+                    page_label = f"Pág. {page_start}"
+            else:
+                page_label = "Pág. N/A"
+
+            formatted_sources.append(
+                {
+                    "source": source,
+                    "page": page_label,
+                    "snippet": doc.page_content[:200]
+                    + ("..." if len(doc.page_content) > 200 else ""),
+                }
+            )
+        return formatted_sources
+
+    def query_stream(self, question: str, history: Optional[list] = None):
+        """Versión streaming de :meth:`query` (generador síncrono).
+
+        Emite la misma secuencia que ``RAGPipeline.answer_query_stream`` con
+        el formato de salida del engine:
+
+        * ``{"type": "retrieved", "n_sources": int}`` tras el retrieval;
+        * ``{"type": "token", "text": str}`` por cada fragmento del LLM;
+        * ``{"type": "done", ...}`` con el payload completo y byte-idéntico
+          al de :meth:`query` (question/answer/sources/metrics/latency_ms/
+          raw_documents), listo para ``RagAdapter.format_response``.
+
+        No genera spans de MLflow (la UI de producción no define
+        ``MLFLOW_TRACKING_URI``); la latencia queda en ``metrics`` igual que
+        en el modo no streaming.
+        """
+        clean_question = question.strip()
+        if not clean_question:
+            yield {
+                "type": "done",
+                "question": question,
+                "answer": "La consulta no puede estar vacía.",
+                "sources": [],
+                "metrics": {
+                    "retrieval_latency_s": 0.0,
+                    "generation_latency_s": 0.0,
+                    "total_latency_s": 0.0,
+                },
+                "latency_ms": 0.0,
+                "raw_documents": [],
+            }
+            return
+
+        for event in self.pipeline.answer_query_stream(clean_question, history=history):
+            etype = event.get("type")
+            if etype == "retrieved":
+                yield {
+                    "type": "retrieved",
+                    "n_sources": len(event.get("documents") or []),
+                }
+            elif etype == "token":
+                yield {"type": "token", "text": event.get("text") or ""}
+            elif etype == "done":
+                source_docs = event.get("source_documents") or []
+                metrics = event.get("metrics") or {}
+                yield {
+                    "type": "done",
+                    "question": clean_question,
+                    "answer": event.get("answer", ""),
+                    "sources": self._format_sources(source_docs),
+                    "metrics": metrics,
+                    "latency_ms": round(
+                        metrics.get("total_latency_s", 0.0) * 1000, 2
+                    ),
+                    "raw_documents": source_docs,
+                }
 
 
 # Instancia singleton para reutilización global

@@ -416,6 +416,18 @@ def _build_history(current_question: str) -> Optional[List[dict]]:
     return entries or None
 
 
+def _classify_backend_error(exc: BaseException) -> str:
+    """Maps a backend exception to a UI error kind (never exposes details).
+
+    The adapter contract only guarantees plain exceptions; the rate-limit
+    signal is detected by class name so the UI stays decoupled from any
+    specific LLM vendor.
+    """
+    if "RateLimit" in type(exc).__name__:
+        return "rate_limit"
+    return "unknown"
+
+
 async def _query_engine(question: str) -> Tuple[RAGResponse | None, str | None]:
     """Runs the adapter inside a retrieval Step.
 
@@ -446,8 +458,12 @@ async def _query_engine(question: str) -> Tuple[RAGResponse | None, str | None]:
             step.output = "No se pudo conectar con el motor de consulta"
         except Exception as exc:
             logger.exception("RAG backend error: %s", type(exc).__name__)
-            error_kind = "unknown"
-            step.output = "Error al procesar la consulta"
+            error_kind = _classify_backend_error(exc)
+            step.output = (
+                "Límite diario de uso alcanzado"
+                if error_kind == "rate_limit"
+                else "Error al procesar la consulta"
+            )
         else:
             n_sources = len(response.sources) if response else 0
             if response and response.grounded and n_sources:
@@ -606,13 +622,121 @@ async def _render_response(
         logger.warning("No se pudo renderizar _sources_panel", exc_info=True)
 
 
+async def _remove_message(msg: Optional[cl.Message]) -> None:
+    """Best-effort removal of a partially streamed message (error/no-answer)."""
+    if msg is None:
+        return
+    try:
+        await msg.remove()
+    except Exception:  # noqa: BLE001 - cleanup must never mask the real error
+        logger.debug("partial message not removed", exc_info=True)
+
+
 async def _answer_question(question: str) -> None:
+    """Answers with token streaming when the backend supports it.
+
+    Flow (same states as before, progressive rendering on top):
+
+    * retrieval Step «Consultando documentos» stays open while the answer
+      streams, updating to «… · generando respuesta…» when chunks arrive;
+    * the assistant message is sent EMPTY and filled with
+      ``stream_token`` per chunk (the UI types the answer live);
+    * mock/legacy backends (no ``query_stream``) yield a single response
+      event and render through the classic :func:`_render_response` path —
+      byte-identical output, so existing behaviour and tests hold;
+    * on error / no-answer the partial streamed message is removed and
+      the friendly notice is shown, exactly like the non-streamed flow.
+    """
     _mark_asked()
-    # if not _get_documents():
-    #    await _notify(fmt.format_no_documents(), actions=[_load_action()])
-    #    return
-    response, error_kind = await _query_engine(question)
-    await _render_response(response, error_kind)
+    documents = _get_documents()
+    adapter = RagAdapter(session_id=_session_id())
+    history = _build_history(question)
+
+    msg: Optional[cl.Message] = None
+    response: RAGResponse | None = None
+    error_kind: str | None = None
+    streamed = False
+
+    async with cl.Step(name="Consultando documentos", type="retrieval") as step:
+        step.output = "🔎 Consultando la documentación…"
+        await step.update()
+        try:
+            async for event in adapter.ask_stream(
+                question, documents, labels=_document_names(), history=history
+            ):
+                etype = event.get("type")
+                if etype == "retrieved":
+                    n_sources = int(event.get("n_sources") or 0)
+                    if n_sources:
+                        step.output = (
+                            f"Recuperado: {_plural(n_sources, 'fragmento')}"
+                            " · generando respuesta…"
+                        )
+                    else:
+                        step.output = "Sin resultados en la documentación"
+                    await step.update()
+                elif etype == "token":
+                    text = str(event.get("text") or "")
+                    if not text:
+                        continue
+                    if msg is None:
+                        msg = cl.Message(content="")
+                        await msg.send()
+                    await msg.stream_token(text)
+                    streamed = True
+                elif etype == "response":
+                    response = event.get("response")
+        except (ConnectionError, TimeoutError, OSError) as exc:
+            logger.warning("RAG engine unavailable: %s", type(exc).__name__)
+            error_kind = "connection"
+            step.output = "No se pudo conectar con el motor de consulta"
+        except Exception as exc:
+            logger.exception("RAG backend error: %s", type(exc).__name__)
+            error_kind = _classify_backend_error(exc)
+            step.output = (
+                "Límite diario de uso alcanzado"
+                if error_kind == "rate_limit"
+                else "Error al procesar la consulta"
+            )
+        else:
+            n_sources = len(response.sources) if response else 0
+            if response and response.grounded and n_sources:
+                step.output = f"Recuperado: {_plural(n_sources, 'fragmento')}"
+            else:
+                step.output = "Sin resultados en la documentación"
+        await step.update()
+
+    if error_kind or response is None:
+        await _remove_message(msg)
+        await _notify(fmt.format_error(error_kind or "unknown"))
+        return
+    if not response.grounded or not response.has_answer:
+        await _remove_message(msg)
+        await _notify(fmt.format_no_answer(response))
+        return
+
+    if not streamed or msg is None:
+        # Mock / legacy backends: classic single-message rendering.
+        await _render_response(response, None)
+        return
+
+    # Streamed answer: finalize the live message (formatted text adds the
+    # latency footer) and attach the interactive elements/side chips.
+    await _clear_side_elements()
+    elements: List[Any] = []
+    chart = _chart_element(response)
+    if chart is not None:
+        elements.append(chart)
+    source_els = _source_elements(response)
+    elements.extend(source_els)
+    msg.elements = elements
+    msg.content = fmt.format_answer(response)
+    await msg.update()
+    _remember_side_elements(source_els)
+    try:
+        await _sources_panel(response)
+    except Exception:
+        logger.warning("No se pudo renderizar _sources_panel", exc_info=True)
 
 
 # --------------------------------------------------------------------------- #
