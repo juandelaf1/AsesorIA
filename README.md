@@ -6,7 +6,7 @@
   <img src="ui/public/logo-asesoria-card.png" alt="AsesorIA — asesor fiscal IA" width="420">
 </p>
 
-[![CI](https://github.com/HelenDiMo/AsesorIA/actions/workflows/ci.yml/badge.svg)](https://github.com/HelenDiMo/AsesorIA/actions/workflows/ci.yml)
+[![CI](https://github.com/juandelaf1/AsesorIA/actions/workflows/ci.yml/badge.svg)](https://github.com/juandelaf1/AsesorIA/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%20%7C%203.13-blue)
 
 ![Chainlit](https://img.shields.io/badge/Chainlit-chat%20UI-1C1C3A)
