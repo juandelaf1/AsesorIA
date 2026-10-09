@@ -20,7 +20,7 @@ const config = {
   // URL canónica y baseUrl de GitHub Pages (proyecto, no de usuario):
   // https://HelenDiMo.github.io/AsesorIA/ — despliegue en
   // .github/workflows/deploy-docs.yml (Settings → Pages → GitHub Actions).
-  url: 'https://HelenDiMo.github.io',
+  url: 'https://juandelaf1.github.io',
   baseUrl: '/AsesorIA/',
 
   onBrokenLinks: 'warn',
