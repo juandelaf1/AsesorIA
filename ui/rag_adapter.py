@@ -44,6 +44,7 @@ query-time errors always propagate.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import inspect
 import logging
@@ -188,9 +189,12 @@ def create_backend(session_id: Optional[str] = None) -> Optional[Any]:
         raise  # missing dependency INSIDE the backend = real defect
     try:
         return get_rag_engine()
-    except (ValueError, Exception) as exc:
-        # Configuration error at construction (API key/provider): the
-        # backend is not configured, not broken.
+    except ValueError as exc:
+        # Configuration error at construction (missing/invalid API key,
+        # unsupported provider — pydantic ValidationError included): the
+        # backend is not configured, not broken. Any other construction
+        # failure (RuntimeError, TypeError, …) is a real defect and raises,
+        # per the documented fallback policy in this module's docstring.
         logger.warning("RAG engine not configured (%s); UI runs on the demo mock.", exc)
         return None
 
@@ -250,14 +254,32 @@ async def _call_backend(
     kwargs: dict = {}
     if history is not None and _accepts_keyword(method, "history"):
         kwargs["history"] = history
-    result = (
-        method(question, documents, **kwargs)
-        if _accepts_documents(method)
-        else method(question, **kwargs)
-    )
+
+    def _invoke():
+        return (
+            method(question, documents, **kwargs)
+            if _accepts_documents(method)
+            else method(question, **kwargs)
+        )
+
+    # Sync backends (the real engine included) perform blocking work —
+    # Chroma retrieval + HTTP to the LLM — for tens of seconds. Running
+    # that call directly inside the async Chainlit handler would freeze
+    # the whole event loop (heartbeats, other sessions, uploads): the
+    # call is offloaded to a worker thread instead. Coroutine methods
+    # (async def) are invoked directly on the loop as before.
+    if inspect.iscoroutinefunction(method):
+        result = _invoke()
+    else:
+        result = await asyncio.to_thread(_invoke)
     if inspect.isawaitable(result):
         result = await result
     return result
+
+
+# Sentinel distinguishing "generator exhausted" from a legitimate event
+# returned by the streaming backend (``next(it, sentinel)``).
+_STREAM_END = object()
 
 
 def _translate_engine_sources(payload: dict) -> dict:
@@ -360,24 +382,71 @@ class RagAdapter:
             RAGResponse ready for the UI.
 
         Raises:
-            Exception: any backend failure propagates and the UI turns it
-                into a friendly message (details are never exposed).
+            Exception: any backend failure propagates — including
+                authentication/HTTP errors at query time — and the UI turns
+                it into a friendly message (details are never exposed).
+                Failures are NEVER converted into a demo answer: ``is_mock``
+                was decided when the adapter was constructed, so a mock
+                reply served while ``is_mock`` is False would look real.
         """
         normalized = normalize_history(history)
         if self.backend is None:
             mock = MockRAG()
             return await mock.ask(question, documents, labels=labels)
-        try:
-            raw = await _call_backend(self.backend, question, documents, normalized)
-            return self.format_response(raw)
-        except Exception as exc:
-            # Si el backend falla por API key inválida (401) o falta de autenticación, degradar al mock
-            err_msg = str(exc).lower()
-            if any(term in err_msg for term in ("api key", "authentication", "401", "unauthorized")):
-                logger.warning("Backend authentication failed (%s). Falling back to mock.", exc)
-                mock = MockRAG()
-                return await mock.ask(question, documents, labels=labels)
-            raise
+        raw = await _call_backend(self.backend, question, documents, normalized)
+        return self.format_response(raw)
+
+    async def ask_stream(
+        self,
+        question: str,
+        documents: list[str],
+        labels: list[str] | None = None,
+        history: list[dict] | None = None,
+    ):
+        """Streaming variant of :meth:`ask` (async generator of events).
+
+        Yields dictionaries:
+
+        * ``{"type": "retrieved", "n_sources": int}`` once the backend has
+          finished retrieval (the UI can show «generando respuesta…»);
+        * ``{"type": "token", "text": str}`` per LLM text fragment;
+        * ``{"type": "response", "response": RAGResponse}`` — ALWAYS the
+          last event, carrying the same normalized contract as ``ask()``.
+
+        Backends without ``query_stream`` (legacy engines, fakes, the demo
+        mock) yield ONLY the final response event, so callers degrade
+        gracefully to the classic single-message path with identical
+        rendering. Errors propagate exactly like ``ask()``.
+        """
+        normalized = normalize_history(history)
+        stream = (
+            getattr(self.backend, "query_stream", None)
+            if self.backend is not None
+            else None
+        )
+        if stream is None:
+            response = await self.ask(question, documents, labels=labels, history=history)
+            yield {"type": "response", "response": response}
+            return
+
+        # The backend exposes a SYNC generator (blocking Chroma/HTTP work).
+        # Each ``next()`` runs in a worker thread so the event loop stays
+        # free between tokens (heartbeats, other sessions, step updates).
+        iterator = iter(stream(question, history=normalized))
+        while True:
+            event = await asyncio.to_thread(next, iterator, _STREAM_END)
+            if event is _STREAM_END:
+                break
+            if not isinstance(event, dict):
+                continue
+            etype = event.get("type")
+            if etype in ("retrieved", "token"):
+                yield event
+            elif etype == "done":
+                yield {
+                    "type": "response",
+                    "response": self.format_response(event),
+                }
 
     def format_response(self, raw: Any) -> RAGResponse:
         """Normalizes any raw response into the frontend contract.

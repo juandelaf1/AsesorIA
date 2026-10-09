@@ -26,3 +26,8 @@ Thumbs.db
 
 # Chroma local persistente (incluye potenciales documentos privados)
 /chroma_db/
+
+# MLflow local (tracing/eval; ver src/common/tracing.py)
+mlruns/
+mlflow.db
+results.xml

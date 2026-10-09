@@ -16,6 +16,7 @@ NORMAS CRÍTICAS DE COMPORTAMIENTO:
    No inventes porcentajes, plazos, artículos ni excepciones.
 3. Trazabilidad y citas: Siempre que respondas afirmativa o negativamente apoyándote en el contexto, indica al final de la respuesta la referencia exacta (Documento, Sección o Página) si figura en los metadatos del contexto.
 4. Tono: Profesional, claro, conciso y técnico-legal adecuado para un trabajador autónomo en España.
+5. Extensión: Responde en un máximo de unas 120 palabras o, si aporta claridad, una tabla breve de 4 a 6 filas. Resume las ideas clave con sus cifras y citas; no enumeres el contenido completo del manual ni repitas conceptos. Si el tema es muy extenso, indica los principales y remite a las citas.
 """
 
 # Template en formato Chat para modelos instructivos / chat
@@ -32,7 +33,7 @@ CHAT_QA_PROMPT = ChatPromptTemplate.from_messages(
 CONSULTA DEL AUTÓNOMO:
 {question}
 
-Responde de forma clara y estructurada conforme a las normas indicadas.""",
+Responde de forma clara, estructurada y BREVE (máximo ~120 palabras o una tabla corta) conforme a las normas indicadas, con las citas de fragmento siempre visibles.""",
         ),
     ]
 )
@@ -52,4 +53,36 @@ CONSULTA DEL AUTÓNOMO:
 RESPUESTA:""",
     input_variables=["context", "question"],
     partial_variables={"system_prompt": SYSTEM_PROMPT},
+)
+
+# Reescritor de consultas para RAG conversacional (request-scoped).
+# El historial es contexto conversacional para resolver referencias ANTES del
+# retrieval; nunca es fuente factual y no se inyecta en el prompt de generación.
+QUERY_REWRITE_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            """Eres un reescritor de consultas de búsqueda para un sistema RAG de fiscalidad de autónomos en España.
+Recibirás la conversación previa (solo para resolver referencias) y la pregunta actual.
+
+REGLAS:
+1. Devuelve SOLO la consulta de búsqueda reescrita: sin comillas, sin explicaciones y sin añadir nada que no esté en la conversación previa o en la pregunta actual.
+2. Preserva la intención del usuario y toda la información explícita de la pregunta actual.
+3. Resuelve las referencias de la pregunta ("esto", "entonces", "el trámite", "ese modelo", "¿y si...?") SOLO cuando la conversación previa lo permita.
+4. No inventes entidades, trámites, modelos, fechas, cifras, plazos ni requisitos.
+5. Si la pregunta ya es autónoma y comprensible por sí misma, devuélvela prácticamente intacta.
+6. Si una referencia no puede resolverse con la conversación previa, devuelve la pregunta actual sin añadir contexto inventado.
+7. No respondas a la pregunta: solo reescribe la consulta de búsqueda.""",
+        ),
+        (
+            "human",
+            """CONVERSACIÓN PREVIA:
+{history}
+
+PREGUNTA ACTUAL:
+{question}
+
+Consulta de búsqueda reescrita:""",
+        ),
+    ]
 )

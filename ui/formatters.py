@@ -165,6 +165,13 @@ def format_error(kind: str = "unknown") -> str:
             "El servicio de búsqueda no está disponible ahora mismo. "
             "Inténtalo de nuevo en unos segundos."
         )
+    if kind == "rate_limit":
+        return (
+            "**⚠️ Límite diario de uso alcanzado**\n\n"
+            "El asistente tiene un cupo diario de consultas y ahora mismo "
+            "está agotado. Vuelve a intentarlo en unos minutos; si persiste, "
+            "prueba mañana. Disculpa las molestias."
+        )
     return (
         "**⚠️ Se ha producido un error técnico**\n\n"
         "No he podido completar tu consulta. Inténtalo de nuevo en unos "
@@ -250,4 +257,6 @@ def format_error_message(exc: BaseException, kind: str = "unknown") -> str:
     """Friendly error message derived from an exception (never exposes details)."""
     if isinstance(exc, (ConnectionError, TimeoutError)):
         return format_error("connection")
+    if "RateLimit" in type(exc).__name__:
+        return format_error("rate_limit")
     return format_error(kind)
