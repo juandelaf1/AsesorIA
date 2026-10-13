@@ -101,9 +101,77 @@ Fecha: 2026-10-13 · commit `8a2f17f` · Windows, Python del entorno local (mini
 |---|---|---|
 | FASE 0 | Inspección + línea base | `PASS` |
 | P0 | Alineación, suites, smoke producción | `PASS` |
-| P1 | E2E en CI + smoke de contenedor + calidad de workflow | `NOT RUN` |
-| P2 | Evaluación RAG (recuperación + generación) e informe de colección | `NOT RUN` |
-| P3 | Backup/restore SQLite, dependencias, rate limiting, aviso de privacidad | `NOT RUN` |
+| P1 | E2E en CI + smoke de contenedor | `PASS` (commit `2371679`, run #7) |
+| P2 | Evaluación RAG (recuperación + generación) e informe de colección | `PARTIAL` — recuperación completa; generación 1/2 muestras (cuota Groq) |
+| P3 | Backup/restore SQLite, dependencias, rate limiting, aviso de privacidad | `PARTIAL` — backup + dependencias hechos |
 | P4 | Tests conversacionales extremo a extremo | `NOT RUN` |
 | P5 | `AGENTS.md`/skills, README e informe final | `NOT RUN` |
 | FASE FINAL | Revisión de release | `NOT RUN` |
+
+---
+
+## 7. P1 — E2E y smoke de contenedor en CI (`2371679`, run #7)
+
+| Job | Contenido | Resultado |
+|---|---|---|
+| `test` (3.11 y 3.13) | pytest completo | `success` (2,2 / 2,5 min) |
+| `e2e` (nuevo) | Python 3.13 + Chromium (`playwright install --with-deps`), `E2E=1 pytest tests/e2e -q` con clave mock, artefactos en fallo | `success` (2,7 min) |
+| `docker` | build con `load: true` + **smoke**: arranque, `/health` con reintento acotado (36×5 s), logs al fallar, limpieza `if: always()` | `success` (1,6 min) |
+| `docs` | build de documentación | `success` |
+| `publish` | publicación de imagen; ahora exige `e2e` además de `test`/`docker`/`docs` | `success` |
+
+El smoke del contenedor valida el arranque sin corpus (el backend se importa bajo demanda); `/health` es liveness de Chainlit, no prueba RAG.
+
+---
+
+## 8. P2 — Evaluación RAG (run local `ae121e06…`, corpus verificado)
+
+Benchmark: 40 preguntas revisadas contra el corpus real (30 con referencia de documento; 28 con referencia de página).
+
+### 8.1 Recuperación — `scripts/evaluate_retrieval.py` (3 colecciones × k∈{3,4,5,8})
+
+| Colección | Doc hits @3 | Página @8 | Tokens medios @8 |
+|---|---|---|---|
+| `corpus_256_32` | **30/30** | 24/28 | **1 944** |
+| `corpus_384_48` (actual en prod, provisional) | 29/30 | 24/28 | 2 964 |
+| `corpus_480_64` | **30/30** | 24/28 | 3 740 |
+
+- Fallo documental @8: solo `corpus_384_48` (q15, base mínima tramo 1); `256_32` y `480_64`: 0 fallos.
+- Resultados crudos: `chroma_db/corpus_runs/ae121e06…/evaluations/20261013T1149…` (fuera de git).
+- Lectura: `corpus_384_48` es la **peor** de las tres (menos doc hits, ~50 % más tokens que `256_32`). `corpus_256_32` domina en coste con la misma cobertura documental que `480_64`. Falta decisión + cambio de referencia en `render.yaml`/`railway.json` y re-verificación.
+
+### 8.2 Generación — `scripts/evaluate_rag_mlflow.py --limit 12 --judge` (Groq real)
+
+Muestra: primeras 12 preguntas · modelo `openai/gpt-oss-120b` · juez LLM (faithfulness/relevance 1-5).
+
+| Colección | Doc hit | Página hit | Faithfulness | Relevance | Latencia media | Coste/consulta |
+|---|---|---|---|---|---|---|
+| `corpus_384_48` | 12/12 | 10/12 | 3,17/5 | 3,75/5 | 26,4 s (gen 23,9 s) | $0,002 |
+| `corpus_256_32` | — | — | — | — | — | `BLOCKED` (cuota diaria Groq) |
+
+- `BLOCKED` momentáneo: cuota TPD de Groq (200 k tokens/día) agotada durante la segunda muestra; reintentar tras el reinicio de ventana.
+- El juez tuvo 3 esperas por rate limit (30-60 s); sin errores 429 definitivos en la muestra 1.
+- MLflow local (`sqlite:///mlflow.db`) registra tokens, coste y trazas.
+
+---
+
+## 9. P3 — Parcial
+
+### 9.1 Backup/restore del SQLite de conversaciones — `PASS` (`b0ec366`)
+
+- `scripts/backup_chainlit_db.py`: backup API de SQLite (coherente con escrituras concurrentes), nunca sobrescribe destino, valida `integrity_check` + recuento de tablas, `chmod 0600` en posix. Restauración documentada como copia manual con la app parada.
+- Tests: `tests/test_backup_chainlit_db.py` (5 tests) + ejecución real sobre la base local (20 hilos, 135 pasos, 196 KB).
+
+### 9.2 Dependencias (`pip-audit`) — `PASS` con residual documentado (`f76e830`)
+
+- Antes: 15 avisos en 3 paquetes. Fix: `sentence-transformers>=5.6,<7` (cierra CVE-2026-68770, CVSS 9,8) — el entorno ya validaba ST 6.0.0 + transformers 5.15.1; suite completa 571 passed.
+- Después: **5 avisos, todos en `chromadb` 1.5.9** (última versión publicada, sin fix). Todos afectan al **servidor** HTTP de Chroma (inyección pre-auth, RBAC multi-tenant, cruce de tenants). Este despliegue usa solo `PersistentClient` embebido en un proceso único, sin listener HTTP → exposición limitada al perfil embebido. Revisar en el próximo release de chromadb.
+- Ojo: requirements con `>=` sigue sin pins exactos (deriva posible); documentado, no bloquea.
+
+### 9.3 Pendiente en P3
+
+| Tarea | Estado |
+|---|---|
+| Volumen Railway | `BLOCKED` (sin acceso al dashboard) |
+| Rate limiting por sesión/IP | `NOT RUN` |
+| Aviso de privacidad en la UI | `NOT RUN` |
