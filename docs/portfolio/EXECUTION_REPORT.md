@@ -103,7 +103,7 @@ Fecha: 2026-10-13 · commit `8a2f17f` · Windows, Python del entorno local (mini
 | P0 | Alineación, suites, smoke producción | `PASS` |
 | P1 | E2E en CI + smoke de contenedor | `PASS` (commit `2371679`, run #7) |
 | P2 | Evaluación RAG (recuperación + generación) e informe de colección | `PARTIAL` — recuperación completa; generación 1/2 muestras (cuota Groq) |
-| P3 | Backup/restore SQLite, dependencias, rate limiting, aviso de privacidad | `PARTIAL` — backup + dependencias hechos |
+| P3 | Backup/restore SQLite, dependencias, rate limiting, aviso de privacidad | `PASS` (volumen Railway `BLOCKED`) |
 | P4 | Tests conversacionales extremo a extremo | `NOT RUN` |
 | P5 | `AGENTS.md`/skills, README e informe final | `NOT RUN` |
 | FASE FINAL | Revisión de release | `NOT RUN` |
@@ -155,7 +155,7 @@ Muestra: primeras 12 preguntas · modelo `openai/gpt-oss-120b` · juez LLM (fait
 
 ---
 
-## 9. P3 — Parcial
+## 9. P3 — `PASS` (salvo volumen Railway, `BLOCKED`)
 
 ### 9.1 Backup/restore del SQLite de conversaciones — `PASS` (`b0ec366`)
 
@@ -173,5 +173,5 @@ Muestra: primeras 12 preguntas · modelo `openai/gpt-oss-120b` · juez LLM (fait
 | Tarea | Estado |
 |---|---|
 | Volumen Railway | `BLOCKED` (sin acceso al dashboard) |
-| Rate limiting por sesión/IP | `NOT RUN` |
-| Aviso de privacidad en la UI | `NOT RUN` |
+| Rate limiting por sesión/IP | `PASS` (`6d414c3`) — 10 msg/min por sesión, ventana deslizante, env-tunable, aviso amable en español; 9 tests |
+| Aviso de privacidad en la UI | `PASS` (`ddd0c2b`) — botón **Privacidad** en la bienvenida con copy llano (qué datos, Google, Groq, no entrenamiento, no cesión, derechos); 4 tests |
