@@ -249,6 +249,23 @@
     }
   }
 
+  /* --- Dangling aria-controls (axe aria-valid-attr-value, critical) ----
+   * Chainlit's resizable panel handle ships aria-controls=":rd:" while the
+   * panel it should reference never gets that id, so assistive tech is told
+   * about a relationship that cannot resolve. Dropping a reference that
+   * points nowhere is the honest repair; the handle keeps its role and its
+   * pointer/keyboard behaviour (aria-controls is informational only). */
+  function dropDanglingAriaControls() {
+    var nodes = document.querySelectorAll("[aria-controls]");
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var ref = el.getAttribute("aria-controls");
+      if (ref && !document.getElementById(ref)) {
+        el.removeAttribute("aria-controls");
+      }
+    }
+  }
+
   /* --- Heading chain: greeting h1 then an sr-only h2 before the steps'
    * h3 (axe heading-order: h1 -> h3 is an invalid skip). ------------- */
   function ensureHeadingChain() {
@@ -608,6 +625,7 @@
     ensureSkipLink();
     labelIconButtons();
     labelComposerInput();
+    dropDanglingAriaControls();
     syncFabVisibility();
     closeMobileSideView();
     syncAriaHiddenFocus();

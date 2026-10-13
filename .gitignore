@@ -31,3 +31,7 @@ Thumbs.db
 mlruns/
 mlflow.db
 results.xml
+
+# E2E (Playwright): capturas de tests fallidos e instancia mock propia
+tests/e2e/artifacts/
+tests/e2e/.server/

@@ -267,8 +267,14 @@ Defensive by construction:
   message content with `.closest()`, never by class list alone —,
   `role="region"` on `#message-composer` and
   `role="contentinfo"` on the watermark (axe «region»), `tabindex=-1` on our
-  FAB/panel while an ancestor is `aria-hidden`, and `closeMobileSideView()`
-  (see §3.2).
+   FAB/panel while an ancestor is `aria-hidden`, and `closeMobileSideView()`
+   (see §3.2).
+- **Dangling `aria-controls` (axe `aria-valid-attr-value`, critical):**
+   Chainlit's resizable panel handle renders `aria-controls=":rd:"` while
+   no element ever receives that id. `dropDanglingAriaControls()` removes
+   a reference that points nowhere on every `apply()` — the attribute is
+   informational, so the handle keeps its role and its pointer/keyboard
+   behaviour. Pinned by `TestDanglingAriaControls`.
 - **Stick-to-bottom:** `MutationObserver` growth detection on the thread
   scroller (found via `.ai-message`) scrolls only when the user is near the
   bottom or interacted in the last 8 s — fixes the post-upload confirmation +
