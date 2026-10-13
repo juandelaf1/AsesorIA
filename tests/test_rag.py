@@ -38,6 +38,30 @@ def test_chat_qa_prompt_formatting():
     assert dummy_question in formatted_messages[1].content
 
 
+def test_system_prompt_citation_rules():
+    """WS3: las citas son trazables (Documento + página del contexto) y
+    las citas textuales directas se limitan a 25 palabras."""
+    assert "«Documento (Pág. N)»" in SYSTEM_PROMPT
+    assert "25 palabras" in SYSTEM_PROMPT
+    assert "nunca inventes páginas" in SYSTEM_PROMPT
+    # The page must come from the context, never be invented.
+    assert "tal y como aparece en el CONTEXTO" in SYSTEM_PROMPT
+
+
+def test_chat_qa_prompt_repeats_citation_guidance():
+    """The human turn restates the citation format (models weight the
+    last instructions heavily)."""
+    messages = CHAT_QA_PROMPT.format_messages(
+        context="[Fragmento 1] - Fuente: manual.pdf (Pág. 3)\n...",
+        question="¿Cuánto es el límite de manutención?",
+    )
+    human = messages[1].content
+    assert "«Documento (Pág. N)»" in human
+    assert "25 palabras" in human
+    # Input contract unchanged: only context + question.
+    assert set(CHAT_QA_PROMPT.input_variables) == {"context", "question"}
+
+
 def test_standalone_qa_prompt_formatting():
     """Verifica la correcta inyección de variables en el prompt estándar."""
     dummy_context = "Los gastos de manutención tienen un límite de 26,67 € diarios."
