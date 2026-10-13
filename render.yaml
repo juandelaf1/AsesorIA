@@ -27,8 +27,10 @@ services:
       # Colección provisional (sin ganadora validada). Tras indexar en el
       # disco hay que apuntar CHROMA_DIR al run: paso 2 de
       # docs/deploy_render.md → /app/chroma_db/corpus_runs/<id-del-run>.
+      # Ganadora de la evaluación de recuperación (docs/portfolio/EXECUTION_REPORT.md §8):
+      # mismos doc hits que corpus_384_48 con ~35% menos de tokens.
       - key: CHROMA_COLLECTION
-        value: corpus_384_48
+        value: corpus_256_32
       - key: CHROMA_DIR
         value: /app/chroma_db
       # Historial de conversaciones sobre el disco persistente.
