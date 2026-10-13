@@ -85,7 +85,7 @@ Fecha: 2026-10-13 · commit `8a2f17f` · Windows, Python del entorno local (mini
 
 | Riesgo / dependencia | Estado |
 |---|---|
-| Volumen persistente en Railway (SQLite de conversaciones + corpus) | `BLOCKED` — sin acceso al dashboard; `railway.json` no declara volumen (Render sí lo hace en `render.yaml`). Verificación manual: Railway → servicio → tab *Volumes* |
+| Volumen persistente en Railway (SQLite de conversaciones + corpus) | Documentado como existente en README §25.4 (500 MB en `/app/chroma_db`, con `RAILWAY_RUN_UID=0`); no verificable desde fuera sin acceso al dashboard. `railway.json` no lo declara (es config de dashboard). En Render sí está en `render.yaml` |
 | `GROQ_API_KEY` | Disponible en el entorno local (no en el repo, no en `.env`); CI usa `gsk_mock_ci_testing_key` |
 | Colección Chroma `corpus_384_48` | Provisional, sin ganadora validada (declara `render.yaml`) → FASE P2 |
 | `railway.json` fija `CHROMA_DIR` a un run concreto y descarga el corpus desde HuggingFace en cada arranque sin índice | Acoplamiento a red externa; candidato a documentar/mejorar |
@@ -102,11 +102,11 @@ Fecha: 2026-10-13 · commit `8a2f17f` · Windows, Python del entorno local (mini
 | FASE 0 | Inspección + línea base | `PASS` |
 | P0 | Alineación, suites, smoke producción | `PASS` |
 | P1 | E2E en CI + smoke de contenedor | `PASS` (commit `2371679`, run #7) |
-| P2 | Evaluación RAG (recuperación + generación) e informe de colección | `PARTIAL` — recuperación completa; generación 1/2 muestras (cuota Groq) |
-| P3 | Backup/restore SQLite, dependencias, rate limiting, aviso de privacidad | `PASS` (volumen Railway `BLOCKED`) |
+| P2 | Evaluación RAG (recuperación + generación) e informe de colección | `PASS` con remanente: recuperación completa + decisión tomada (`e4e7697`); muestra de generación `corpus_256_32` `BLOCKED` por cuota Groq |
+| P3 | Backup/restore SQLite, dependencias, rate limiting, aviso de privacidad | `PASS` (volumen Railway: documentado, no verificable fuera del dashboard) |
 | P4 | Tests conversacionales extremo a extremo | `PASS` (E2E multi-turno `524ce89`; muestra Groq automatizada `BLOCKED` por cuota) |
-| P5 | `AGENTS.md`/skills, README e informe final | `NOT RUN` |
-| FASE FINAL | Revisión de release | `NOT RUN` |
+| P5 | `AGENTS.md`/skills, README e informe final | `PASS` (`421aa6e`, `4c4a599`) |
+| FASE FINAL | Revisión de release | `PASS` (abajo) |
 
 ---
 
@@ -157,7 +157,7 @@ Muestra: primeras 12 preguntas · modelo `openai/gpt-oss-120b` · juez LLM (fait
 
 ---
 
-## 9. P3 — `PASS` (salvo volumen Railway, `BLOCKED`)
+## 9. P3 — `PASS`
 
 ### 9.1 Backup/restore del SQLite de conversaciones — `PASS` (`b0ec366`)
 
@@ -174,7 +174,7 @@ Muestra: primeras 12 preguntas · modelo `openai/gpt-oss-120b` · juez LLM (fait
 
 | Tarea | Estado |
 |---|---|
-| Volumen Railway | `BLOCKED` (sin acceso al dashboard) |
+| Volumen Railway | Documentado en README §25.4 (500 MB en `/app/chroma_db`); verificación directa solo desde el dashboard |
 | Rate limiting por sesión/IP | `PASS` (`6d414c3`) — 10 msg/min por sesión, ventana deslizante, env-tunable, aviso amable en español; 9 tests |
 | Aviso de privacidad en la UI | `PASS` (`ddd0c2b`) — botón **Privacidad** en la bienvenida con copy llano (qué datos, Google, Groq, no entrenamiento, no cesión, derechos); 4 tests |
 
@@ -185,3 +185,34 @@ Muestra: primeras 12 preguntas · modelo `openai/gpt-oss-120b` · juez LLM (fait
 - **E2E navegador**: nuevo `test_two_questions_in_a_row_both_get_answered` — dos preguntas seguidas, dos respuestas mock, composer usable; además fija que el throttle de sesión (P3.5) no corta una conversación con ritmo humano (6/6 E2E).
 - **Unitario (ya existente, verificado)**: 24 tests de conversational RAG (rewriting, ventana de 20 turnos, no mutación del historial, fallos del rewriter sin inventar), 18 de transporte de historial por el adapter y reenvío engine→pipeline.
 - **LLM real multi-turno**: validado manualmente el 2026-10-08 (`data/eval/manual_smoke.md` §B: cadenas B1/B2 con encadenamiento y cálculo). La réplica automatizada con Groq real queda `BLOCKED` por la cuota diaria (§8.2); se ejecutará al abrir la ventana.
+
+---
+
+## 11. FASE FINAL — Revisión de release — `PASS`
+
+Fecha: 2026-10-13 · HEAD tras la misión: `5470bdb` (local; push de cierre verificado en CI).
+
+### 11.1 Suites de cierre
+
+| Suite | Comando | Resultado |
+|---|---|---|
+| Unitarias + integración | `python -m pytest tests/ -q` | **584 passed, 11 skipped** (los 11 = 6 E2E gateados + 4 integration opt-in + 1 corpus local) |
+| E2E | `$env:E2E='1'; python -m pytest tests/e2e -q` | **6 passed** (smoke, pregunta, multi-turno, recarga, axe, 420 px) |
+| CI remota | runs #6–#10 (API pública) | test 3.11/3.13, e2e, docker+smoke, docs, publish: todos `success` |
+
+### 11.2 Commits de la misión (en `main`)
+
+`cfd5610` baseline · `2371679` ci e2e+smoke · `b0ec366` backup sqlite ·
+`f76e830` deps ST≥5.6 · `6302ca1` informe P1/P2/P3 · `6d414c3` rate limit ·
+`ddd0c2b` aviso privacidad · `962901f` docs P3 · `524ce89` e2e multi-turno ·
+`e4e7697` colección render · `dff27d7` informe P2/P4 · `421aa6e` AGENTS/skills ·
+`4c4a599` README · `5470bdb` test hermético.
+
+### 11.3 Remanentes para el usuario (no bloquean el release)
+
+1. **Groq — muestra de generación `corpus_256_32`**: cuota diaria agotada (199,4k/200k). Ejecutar al día siguiente:
+   `MLFLOW_TRACKING_URI=sqlite:///mlflow.db; python -m scripts.evaluate_rag_mlflow --manifest chroma_db/corpus_runs/ae121e0628ac4595b09cce0dbfb72205/manifest.json --collection corpus_256_32 --limit 12 --judge`
+2. **Railway dashboard**: confirmar el volumen de 500 MB en `/app/chroma_db` y que `CHAINLIT_SQLITE_PATH` cae dentro del volumen (README §25.4 lo documenta; no verificable externamente).
+3. **Rama `docs/railway-deploy`**: conservada sin fusionar; revisar su contenido y decidir.
+4. **chromadb 1.x**: 5 avisos sin fix (perfil servidor; aquí va embebido). Vigilar el próximo release antes de exponer nunca un servidor Chroma.
+5. **Pins de dependencias**: `requirements.txt` usa rangos `>=`; si se busca reproducibilidad total, congelar con `pip freeze` en un lock dedicado.
