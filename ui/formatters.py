@@ -157,13 +157,21 @@ def format_no_answer(response: RAGResponse) -> str:
 def format_error(kind: str = "unknown") -> str:
     """Technical error state, with no internal details.
 
-    kind: "connection" (engine unavailable) | "backend" | "unknown".
+    kind: "connection" (engine unavailable) | "timeout" | "rate_limit"
+    | "backend" | "unknown".
     """
     if kind == "connection":
         return (
             "**⚠️ No he podido conectar con el motor de consulta**\n\n"
             "El servicio de búsqueda no está disponible ahora mismo. "
             "Inténtalo de nuevo en unos segundos."
+        )
+    if kind == "timeout":
+        return (
+            "**⏱️ La consulta ha tardado demasiado**\n\n"
+            "El servicio no ha respondido a tiempo. Inténtalo de nuevo en "
+            "unos segundos; si persiste, prueba con una pregunta más "
+            "concreta."
         )
     if kind == "rate_limit":
         return (
@@ -255,7 +263,9 @@ def format_question_too_long(limit: int) -> str:
 
 def format_error_message(exc: BaseException, kind: str = "unknown") -> str:
     """Friendly error message derived from an exception (never exposes details)."""
-    if isinstance(exc, (ConnectionError, TimeoutError)):
+    if isinstance(exc, TimeoutError):
+        return format_error("timeout")
+    if isinstance(exc, ConnectionError):
         return format_error("connection")
     if "RateLimit" in type(exc).__name__:
         return format_error("rate_limit")

@@ -101,6 +101,23 @@ def _reset_session() -> None:
     cl.user_session.set("has_asked", False)
 
 
+def _resume_flags(thread: dict) -> dict:
+    """Session flags to restore when a persisted thread is reopened.
+
+    Only derives what the persisted thread can actually prove: whether the
+    conversation already started (any user turn), so the welcome/guidance
+    state matches reality after a reload. Loaded documents are deliberately
+    NOT restored — their files live in the previous process's session, and
+    pretending they still exist would break the grounding contract.
+    """
+    steps = thread.get("steps") or []
+    has_asked = any(
+        isinstance(step, dict) and step.get("type") == "user_message"
+        for step in steps
+    )
+    return {"has_asked": has_asked}
+
+
 _FALLBACK_SESSION_ID: str | None = None
 
 
@@ -452,7 +469,14 @@ async def _query_engine(question: str) -> Tuple[RAGResponse | None, str | None]:
                 question, documents, labels=_document_names(), history=history
             )
             response = adapter.format_response(raw)
-        except (ConnectionError, TimeoutError, OSError) as exc:
+        except TimeoutError as exc:
+            # asyncio.wait_for raises TimeoutError (3.11+: builtin) — it is
+            # also an OSError subclass, so it MUST be caught first or it
+            # would masquerade as a plain connection failure.
+            logger.warning("RAG engine timeout: %s", type(exc).__name__)
+            error_kind = "timeout"
+            step.output = "La consulta ha tardado demasiado tiempo"
+        except (ConnectionError, OSError) as exc:
             logger.warning("RAG engine unavailable: %s", type(exc).__name__)
             error_kind = "connection"
             step.output = "No se pudo conectar con el motor de consulta"
@@ -686,7 +710,13 @@ async def _answer_question(question: str) -> None:
                     streamed = True
                 elif etype == "response":
                     response = event.get("response")
-        except (ConnectionError, TimeoutError, OSError) as exc:
+        except TimeoutError as exc:
+            # Raised by the per-event asyncio.wait_for in ask_stream; also
+            # an OSError subclass → must precede the connection branch.
+            logger.warning("RAG engine timeout: %s", type(exc).__name__)
+            error_kind = "timeout"
+            step.output = "La consulta ha tardado demasiado tiempo"
+        except (ConnectionError, OSError) as exc:
             logger.warning("RAG engine unavailable: %s", type(exc).__name__)
             error_kind = "connection"
             step.output = "No se pudo conectar con el motor de consulta"
@@ -1031,6 +1061,19 @@ async def on_chat_start() -> None:
         actions=[_load_action()],
         metadata={_HISTORY_NOTICE_KEY: True},
     ).send()
+
+
+@cl.on_chat_resume
+async def on_chat_resume(thread: dict) -> None:
+    """Reopened thread: restore session flags, no welcome re-send.
+
+    Registering this handler is what makes Chainlit emit the persisted
+    thread back to the client on reload (chainlit/socket.py only resumes
+    when a handler exists); without it the UI stayed on the spinner.
+    """
+    _reset_session()
+    for key, value in _resume_flags(thread).items():
+        cl.user_session.set(key, value)
 
 
 @cl.on_message

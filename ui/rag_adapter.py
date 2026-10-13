@@ -73,6 +73,22 @@ logger = logging.getLogger(__name__)
 HISTORY_WINDOW = 20
 _HISTORY_ROLES = ("user", "assistant")
 
+# Backend response deadline. Retrieval + LLM normally answer in tens of
+# seconds; without a cap a hung HTTP call to the provider left the composer
+# waiting forever (no heartbeat recovery). RAG_BACKEND_TIMEOUT_S overrides
+# the default per deployment; non-positive or unparsable → default.
+BACKEND_TIMEOUT_S = 60.0
+
+
+def backend_timeout() -> float:
+    """Seconds allowed for one backend round-trip (or one stream event)."""
+    raw = os.environ.get("RAG_BACKEND_TIMEOUT_S", "").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return BACKEND_TIMEOUT_S
+    return value if value > 0 else BACKEND_TIMEOUT_S
+
 
 def normalize_history(history: Any) -> Optional[List[dict]]:
     """Validates/normalizes a conversation history at the UI→RAG boundary.
@@ -268,12 +284,20 @@ async def _call_backend(
     # the whole event loop (heartbeats, other sessions, uploads): the
     # call is offloaded to a worker thread instead. Coroutine methods
     # (async def) are invoked directly on the loop as before.
+    #
+    # Every path is bounded by backend_timeout(): a hung provider call
+    # raises TimeoutError (surfaced by the UI as the friendly «consulta ha
+    # tardado demasiado» state) instead of leaving the composer waiting
+    # forever. On timeout the worker thread cannot be killed mid-flight,
+    # but the caller is released immediately and the thread finishes in
+    # the background.
+    timeout = backend_timeout()
     if inspect.iscoroutinefunction(method):
-        result = _invoke()
+        result = await asyncio.wait_for(_invoke(), timeout=timeout)
     else:
-        result = await asyncio.to_thread(_invoke)
+        result = await asyncio.wait_for(asyncio.to_thread(_invoke), timeout=timeout)
     if inspect.isawaitable(result):
-        result = await result
+        result = await asyncio.wait_for(result, timeout=timeout)
     return result
 
 
@@ -432,9 +456,14 @@ class RagAdapter:
         # The backend exposes a SYNC generator (blocking Chroma/HTTP work).
         # Each ``next()`` runs in a worker thread so the event loop stays
         # free between tokens (heartbeats, other sessions, step updates).
+        # Each step is bounded by backend_timeout(): the first event covers
+        # retrieval + first token, later ones the gap between tokens.
         iterator = iter(stream(question, history=normalized))
+        timeout = backend_timeout()
         while True:
-            event = await asyncio.to_thread(next, iterator, _STREAM_END)
+            event = await asyncio.wait_for(
+                asyncio.to_thread(next, iterator, _STREAM_END), timeout=timeout
+            )
             if event is _STREAM_END:
                 break
             if not isinstance(event, dict):
