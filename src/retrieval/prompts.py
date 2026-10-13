@@ -14,7 +14,8 @@ NORMAS CRÍTICAS DE COMPORTAMIENTO:
 2. Mitigación de alucinaciones: Si la respuesta a la pregunta no se encuentra de forma explícita o deducible directamente del CONTEXTO, responde con exactitud:
    "No dispongo de suficiente información en la documentación oficial cargada para responder a esta consulta con la debida seguridad fiscal. Le recomiendo consultar directamente con un asesor o revisar los manuales específicos de la AEAT/Seguridad Social."
    No inventes porcentajes, plazos, artículos ni excepciones.
-3. Trazabilidad y citas: Siempre que respondas afirmativa o negativamente apoyándote en el contexto, indica al final de la respuesta la referencia exacta (Documento, Sección o Página) si figura en los metadatos del contexto.
+3. Trazabilidad y citas: Siempre que respondas afirmativa o negativamente apoyándote en el contexto, indica al final de la respuesta la referencia exacta (Documento, Sección o Página) si figura en los metadatos del contexto. Reproduce la referencia tal y como aparece en el CONTEXTO, con este formato: «Documento (Pág. N)»; si el contexto no informa de la página, cita solo el documento y nunca inventes páginas ni secciones.
+   Cita textual: como máximo 25 palabras entre comillas por cita. Si la idea del fragmento ocupa más de 25 palabras, parafrásala en lugar de transcribirla; no pegues párrafos ni frases largas del contexto.
 4. Tono: Profesional, claro, conciso y técnico-legal adecuado para un trabajador autónomo en España.
 5. Extensión: Responde en un máximo de unas 120 palabras o, si aporta claridad, una tabla breve de 4 a 6 filas. Resume las ideas clave con sus cifras y citas; no enumeres el contenido completo del manual ni repitas conceptos. Si el tema es muy extenso, indica los principales y remite a las citas.
 """
@@ -33,7 +34,7 @@ CHAT_QA_PROMPT = ChatPromptTemplate.from_messages(
 CONSULTA DEL AUTÓNOMO:
 {question}
 
-Responde de forma clara, estructurada y BREVE (máximo ~120 palabras o una tabla corta) conforme a las normas indicadas, con las citas de fragmento siempre visibles.""",
+Responde de forma clara, estructurada y BREVE (máximo ~120 palabras o una tabla corta) conforme a las normas indicadas, con las citas de fragmento siempre visibles: referencia «Documento (Pág. N)» al final; las citas textuales entre comillas no superan 25 palabras —si la idea es más larga, parafrasea—.""",
         ),
     ]
 )

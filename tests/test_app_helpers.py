@@ -487,3 +487,71 @@ class TestNormalFlowMessages:
         css = (js_dir / "custom.css").read_text(encoding="utf-8")
         assert '[id^="step-"] > span:first-child' in css
         assert "display: none" in css
+
+
+class TestDanglingAriaControls:
+    """axe `aria-valid-attr-value` (critical): Chainlit's resizable panel
+    handle ships `aria-controls=":rd:"` while no element ever gets that id,
+    so assistive tech is told about a relationship that cannot resolve.
+    The accessibility layer drops references that point nowhere.
+    """
+
+    def _js(self) -> str:
+        return (
+            Path(app.__file__).parent / "public" / "custom.js"
+        ).read_text(encoding="utf-8")
+
+    def test_dangling_reference_is_dropped(self):
+        js = self._js()
+        assert "function dropDanglingAriaControls()" in js
+        # Only the attribute is touched: the handle keeps its role and its
+        # pointer/keyboard behaviour.
+        assert 'el.removeAttribute("aria-controls")' in js
+        assert "document.getElementById(ref)" in js
+
+    def test_repair_runs_on_every_apply(self):
+        js = self._js()
+        apply_body = js.split("function apply() {", 1)[1].split("\n  }", 1)[0]
+        assert "dropDanglingAriaControls();" in apply_body
+
+
+class TestChatResume:
+    """on_chat_resume (WS1): reopened threads restore session flags.
+
+    Registering the handler is what makes Chainlit send the persisted
+    thread back to the client on reload; without it the UI stayed on the
+    spinner. The flags derive ONLY from what the thread proves.
+    """
+
+    def test_handler_is_registered(self):
+        from chainlit.config import config
+
+        assert config.code.on_chat_resume is not None
+
+    def test_user_turn_restores_asked_state(self):
+        flags = app._resume_flags(
+            {
+                "steps": [
+                    {"type": "assistant_message", "output": "Bienvenido"},
+                    {"type": "user_message", "output": "¿Qué es gasto deducible?"},
+                ]
+            }
+        )
+        assert flags == {"has_asked": True}
+
+    @pytest.mark.parametrize(
+        "thread",
+        [
+            {},
+            {"steps": []},
+            {"steps": [{"type": "assistant_message", "output": "hola"}]},
+            {"steps": ["not-a-dict", None]},
+        ],
+    )
+    def test_thread_without_user_turn_stays_unasked(self, thread):
+        assert app._resume_flags(thread) == {"has_asked": False}
+
+    def test_documents_are_not_restored(self):
+        """Files lived in the previous process: restoring them would lie."""
+        flags = app._resume_flags({"steps": [{"type": "user_message"}]})
+        assert set(flags) == {"has_asked"}
