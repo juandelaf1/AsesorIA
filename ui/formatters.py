@@ -256,6 +256,15 @@ def format_question_too_long(limit: int) -> str:
     )
 
 
+def format_rate_limited(retry_seconds: float) -> str:
+    """Friendly notice when a session sends messages faster than allowed."""
+    seconds = max(1, int(round(retry_seconds)))
+    return (
+        "Has enviado varios mensajes en muy poco tiempo. "
+        f"Espera unos {seconds} segundos y vuelve a intentarlo."
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Errors (compatibility)
 # --------------------------------------------------------------------------- #

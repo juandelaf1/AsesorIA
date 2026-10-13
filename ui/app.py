@@ -43,6 +43,7 @@ try:
     )
     from .persistence import build_data_layer as _build_data_layer
     from .rag_adapter import RagAdapter
+    from .rate_limit import MessageRateLimiter
 except ImportError:
     import formatters as fmt
     from contracts import RAGResponse
@@ -54,8 +55,19 @@ except ImportError:
     )
     from persistence import build_data_layer as _build_data_layer
     from rag_adapter import RagAdapter
+    from rate_limit import MessageRateLimiter
 
 logger = logging.getLogger("asesor_fiscal.ui")
+
+
+def _env_number(name: str, default: float) -> float:
+    """Reads a numeric environment variable, falling back on bad input."""
+    raw = os.environ.get(name, "").strip()
+    try:
+        return float(raw) if raw else default
+    except ValueError:
+        return default
+
 
 # --------------------------------------------------------------------------- #
 # UI configuration
@@ -65,6 +77,13 @@ MAX_FILE_SIZE_MB = 50
 ALLOWED_EXTENSIONS = {"pdf", "txt", "md"}
 MAX_QUESTION_LENGTH = 800
 EXAMPLE_QUESTION = "¿Qué gastos son deducibles en el IRPF de un autónomo?"
+
+# Per-session chat throttle (env-tunable; <= 0 disables). Shields the shared
+# LLM quota from accidental message bursts without slowing a human down.
+CHAT_RATE_LIMIT_MESSAGES = int(_env_number("CHAT_RATE_LIMIT", 10))
+CHAT_RATE_LIMIT_WINDOW_S = _env_number("CHAT_RATE_LIMIT_WINDOW_S", 60.0)
+RATE_LIMITER = MessageRateLimiter(CHAT_RATE_LIMIT_MESSAGES, CHAT_RATE_LIMIT_WINDOW_S)
+_RATE_SESSION_KEY = "rate_limit_key"
 
 # Short commands that open the upload assistant (exact match so legitimate
 # questions containing the word "archivo" are not hijacked).
@@ -270,6 +289,27 @@ def _has_asked() -> bool:
 
 def _mark_asked() -> None:
     cl.user_session.set("has_asked", True)
+
+
+def _rate_limit_key() -> str:
+    """Stable throttle key for this chat session (one per conversation)."""
+    key = cl.user_session.get(_RATE_SESSION_KEY)
+    if not key:
+        key = uuid4().hex
+        cl.user_session.set(_RATE_SESSION_KEY, key)
+    return str(key)
+
+
+def _session_key_or_none() -> Optional[str]:
+    """Throttle key, or None when there is no Chainlit session context.
+
+    Outside a real chat session (unit tests, scripts) there is nothing to
+    throttle, so the gate must not fire and must not consume quota.
+    """
+    try:
+        return _rate_limit_key()
+    except Exception:  # ChainlitContextException y compañía
+        return None
 
 
 def _suggestion_actions(asked: bool) -> List[cl.Action] | None:
@@ -1104,6 +1144,13 @@ async def _handle_message(message: cl.Message) -> None:
 
     if len(content) > MAX_QUESTION_LENGTH:
         await _notify(fmt.format_question_too_long(MAX_QUESTION_LENGTH))
+        return
+
+    throttle_key = _session_key_or_none()
+    if throttle_key is not None and not RATE_LIMITER.allow(throttle_key):
+        await _notify(
+            fmt.format_rate_limited(RATE_LIMITER.retry_after(throttle_key))
+        )
         return
 
     if content.lower().rstrip("¿?¡!.") in UPLOAD_COMMANDS:
