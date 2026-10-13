@@ -246,11 +246,11 @@ Capas auxiliares (fuera del flujo principal): **Docker** · **CI/CD (GitHub Acti
 
 ## Cómo se valida
 
-- **Suite automatizada**: `python -m pytest tests/ -q` → **501 passed, 5 skipped** en `main` (ingesta, chunking, retrieval, pipeline conversacional, seguridad, UI, contratos).
+- **Suite automatizada**: `python -m pytest tests/ -q` → **584 passed, 10 skipped** en `main` (ingesta, chunking, retrieval, pipeline conversacional, seguridad, UI, contratos).
 - **Benchmark de retrieval**: 40 preguntas con documento/página esperados (`data/eval/benchmark.json` + `scripts/evaluate_retrieval.py`).
 - **Conversación E2E**: hilo Q1→Q5 + pregunta aislada en sesión nueva (la demo de arriba).
 - **Evaluación RAG**: `scripts/evaluate_rag_mlflow.py` con LLM-as-judge (faithfulness / relevance) registrada en MLflow.
-- **CI**: tests en Python 3.11 y 3.13 + build Docker + build de documentación en cada PR.
+- **CI**: tests en Python 3.11 y 3.13, E2E (Playwright + axe), smoke del contenedor (`/health`), build Docker y documentación; la imagen solo se publica con todo en verde.
 
 ## Cómo se despliega
 
@@ -1023,7 +1023,7 @@ Entre las áreas cubiertas se encuentran:
 * pipeline conversacional (rewriting, historial y sesión);
 * retriever (banda de umbral para consultas conversacionales).
 
-En esta release candidate la suite completa da **501 passed, 5 skipped**.
+En esta release candidate la suite completa da **584 passed, 10 skipped**.
 
 La existencia de tests no implica que el sistema esté libre de errores; su objetivo es detectar regresiones y verificar contratos y comportamientos definidos.
 
@@ -1038,10 +1038,11 @@ El flujo real es:
 ```text
 push / PR a main
    ├── test:    pytest en Python 3.11 y 3.13 (credenciales dummy)
-   ├── docker:  build de la imagen Docker (sin publicar)
+   ├── e2e:     Playwright + axe (instancia mock, Chromium)
+   ├── docker:  build + smoke: arranque y /health (sin publicar)
    └── docs:    npm ci + build de Docusaurus
                      │
-push a main (tras los 3 jobs)
+push a main (tras los 4 jobs)
    └── publish: imagen publicada en GHCR
                 (ghcr.io/<repo>:sha-<commit> y :main)
 ```
@@ -1366,10 +1367,11 @@ docker compose down         # los datos persisten en el host
 ```text
 push / PR a main
    ├── test:    pytest en Python 3.11 y 3.13 (GROQ_API_KEY dummy)
-   ├── docker:  build de la imagen (push: false, caché GHA)
+   ├── e2e:     Playwright + axe (instancia mock, Chromium)
+   ├── docker:  build + smoke: arranque y /health (push: false, caché GHA)
    └── docs:    npm ci + build de Docusaurus
                      │
-push a main (tras los 3 jobs)
+push a main (tras los 4 jobs)
    └── publish: imagen en GHCR → ghcr.io/<repo>:sha-<commit> y :main
 ```
 
@@ -1423,7 +1425,7 @@ Nunca se commitean secretos; `.env.example` documenta únicamente nombres.
 | `GROQ_API_KEY` | **required** | Clave de Groq (LLM). Sin ella la UI degrada a modo mock claramente etiquetado. |
 | `CHAINLIT_AUTH_SECRET` | **required (producción)** | Secreto de sesión (`chainlit create-secret`). |
 | `OAUTH_GOOGLE_CLIENT_ID` / `OAUTH_GOOGLE_CLIENT_SECRET` | optional | Login con Google; sin ellas la app arranca con login desactivado. |
-| `CHROMA_DIR` / `CHROMA_COLLECTION` | optional | Corpus indexado y colección (demo: `corpus_384_48`). |
+| `CHROMA_DIR` / `CHROMA_COLLECTION` | optional | Corpus indexado y colección (V1/producción: `corpus_256_32`, ganadora de la evaluación; ver §6). |
 | `CORPUS_RUN` | optional (compose) | Run indexado dentro de `chroma_db/corpus_runs/`. |
 | `CHUNK_SIZE_TOKENS` / `CHUNK_OVERLAP_TOKENS` | optional | Chunking V1 (256 / 32). |
 | `MLFLOW_TRACKING_URI` / `MLFLOW_EXPERIMENT_NAME` | optional (development) | Activa tracing/eval MLflow. Sin URI: sin sobrecoste. |
@@ -1594,11 +1596,11 @@ Supporting layers (outside the main flow): **Docker** · **CI/CD (GitHub Actions
 
 ## How it is validated
 
-- **Automated suite**: `python -m pytest tests/ -q` → **501 passed, 5 skipped** on `main` (ingestion, chunking, retrieval, conversational pipeline, security, UI, contracts).
+- **Automated suite**: `python -m pytest tests/ -q` → **584 passed, 10 skipped** on `main` (ingestion, chunking, retrieval, conversational pipeline, security, UI, contracts).
 - **Retrieval benchmark**: 40 questions with expected document/page (`data/eval/benchmark.json` + `scripts/evaluate_retrieval.py`).
 - **E2E conversation**: Q1→Q5 thread plus an isolated question in a new session (the demo above).
 - **RAG evaluation**: `scripts/evaluate_rag_mlflow.py` with LLM-as-judge (faithfulness / relevance) recorded in MLflow.
-- **CI**: tests on Python 3.11 and 3.13 + Docker build + documentation build on every PR.
+- **CI**: tests on Python 3.11 and 3.13, E2E (Playwright + axe), container smoke (`/health`), Docker build and docs; the image is only published when everything is green.
 
 ## How it is deployed
 
@@ -2360,7 +2362,7 @@ Covered areas include:
 * conversational pipeline (rewriting, history and session);
 * retriever (threshold band for conversational queries).
 
-On this release candidate the full suite reports **501 passed, 5 skipped**.
+On this release candidate the full suite reports **584 passed, 10 skipped**.
 
 Tests do not imply that the system is error-free; their purpose is to detect regressions and verify defined contracts and behaviors.
 
@@ -2375,10 +2377,11 @@ The actual flow is:
 ```text
 push / PR to main
    ├── test:    pytest on Python 3.11 and 3.13 (dummy credentials)
-   ├── docker:  Docker image build (not published)
+   ├── e2e:     Playwright + axe (mock instance, Chromium)
+   ├── docker:  build + smoke: start and /health (not published)
    └── docs:    npm ci + Docusaurus build
                      │
-push to main (after the 3 jobs)
+push to main (after the 4 jobs)
    └── publish: image published to GHCR
                 (ghcr.io/<repo>:sha-<commit> and :main)
 ```
@@ -2703,10 +2706,11 @@ docker compose down         # data persists on the host
 ```text
 push / PR to main
    ├── test:    pytest on Python 3.11 and 3.13 (dummy GROQ_API_KEY)
-   ├── docker:  image build (push: false, GHA cache)
+   ├── e2e:     Playwright + axe (mock instance, Chromium)
+   ├── docker:  build + smoke: start and /health (push: false, GHA cache)
    └── docs:    npm ci + Docusaurus build
                      │
-push to main (after the 3 jobs)
+push to main (after the 4 jobs)
    └── publish: image to GHCR → ghcr.io/<repo>:sha-<commit> and :main
 ```
 
@@ -2760,7 +2764,7 @@ Secrets are never committed; `.env.example` documents names only.
 | `GROQ_API_KEY` | **required** | Groq key (LLM). Without it the UI degrades to a clearly labeled mock mode. |
 | `CHAINLIT_AUTH_SECRET` | **required (production)** | Session secret (`chainlit create-secret`). |
 | `OAUTH_GOOGLE_CLIENT_ID` / `OAUTH_GOOGLE_CLIENT_SECRET` | optional | Google login; without them the app starts with login disabled. |
-| `CHROMA_DIR` / `CHROMA_COLLECTION` | optional | Indexed corpus and collection (demo: `corpus_384_48`). |
+| `CHROMA_DIR` / `CHROMA_COLLECTION` | optional | Indexed corpus and collection (V1/production: `corpus_256_32`, evaluation winner; see §6). |
 | `CORPUS_RUN` | optional (compose) | Indexed run inside `chroma_db/corpus_runs/`. |
 | `CHUNK_SIZE_TOKENS` / `CHUNK_OVERLAP_TOKENS` | optional | V1 chunking (256 / 32). |
 | `MLFLOW_TRACKING_URI` / `MLFLOW_EXPERIMENT_NAME` | optional (development) | Enables MLflow tracing/eval. Without URI: no overhead. |
