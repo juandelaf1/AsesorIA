@@ -658,7 +658,14 @@ class TestRagAdapter:
         assert resp.grounded is False
 
     @pytest.mark.asyncio
-    async def test_adapter_ask_uses_mock(self):
+    async def test_adapter_ask_uses_mock(self, monkeypatch):
+        # Hermetic: force the mock path even when GROQ_API_KEY is present in
+        # the environment, so the test never depends on external quota.
+        import ui.rag_adapter as adapter_module
+
+        monkeypatch.setattr(
+            adapter_module, "create_backend", lambda session_id=None: None
+        )
         adapter = RagAdapter()
         resp = await adapter.ask("¿IVA deducible?", [])
         assert isinstance(resp, RAGResponse)
