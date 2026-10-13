@@ -247,6 +247,15 @@ def _load_action() -> cl.Action:
     )
 
 
+def _privacy_action() -> cl.Action:
+    return cl.Action(
+        name="aviso_privacidad",
+        payload={"intent": "privacy"},
+        label="\U0001f512 Privacidad",
+        tooltip="Ver cómo se tratan tus datos",
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Task lifecycle for action callbacks (limitación upstream)
 # --------------------------------------------------------------------------- #
@@ -824,6 +833,14 @@ async def _on_load_documents(action: cl.Action) -> None:
         await _emit_task("end")
 
 
+@cl.action_callback("aviso_privacidad")
+async def _on_privacy_notice(action: cl.Action) -> None:
+    await cl.Message(
+        content=fmt.format_privacy_notice(),
+        metadata={_HISTORY_NOTICE_KEY: True},
+    ).send()
+
+
 @cl.action_callback("ejemplo_pregunta")
 async def _on_example_question(action: cl.Action) -> None:
     await _emit_task("start")
@@ -1098,7 +1115,7 @@ async def on_chat_start() -> None:
     is_mock = RagAdapter(session_id=_session_id()).is_mock
     await cl.Message(
         content=fmt.format_welcome(is_mock),
-        actions=[_load_action()],
+        actions=[_load_action(), _privacy_action()],
         metadata={_HISTORY_NOTICE_KEY: True},
     ).send()
 

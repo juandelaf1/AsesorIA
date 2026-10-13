@@ -128,6 +128,7 @@ def format_welcome(is_mock: bool = False) -> str:
         "1️⃣ **Carga** · 2️⃣ **Pregunta** · 3️⃣ **Revisa las fuentes**",
         "",
         "> ⓘ Las respuestas se basan exclusivamente en la documentación disponible.",
+        "> 🔒 Tus datos se usan solo para responderte: pulsa **Privacidad** para más detalle.",
     ]
     if is_mock:
         lines += [
@@ -135,6 +136,29 @@ def format_welcome(is_mock: bool = False) -> str:
             "🧠 *Modo demostración: las respuestas son simuladas.*",
         ]
     return "\n".join(lines)
+
+
+def format_privacy_notice() -> str:
+    """Plain-language privacy notice shown from the welcome screen."""
+    return "\n".join(
+        [
+            "**Privacidad de tus datos**",
+            "",
+            "- Tus preguntas, respuestas y documentos se procesan únicamente "
+            "para atenderte en esta conversación.",
+            "- Para iniciar sesión se usa tu cuenta de Google: solo se recibe "
+            "tu nombre y tu correo.",
+            "- Las conversaciones quedan guardadas en el servidor de la "
+            "aplicación para que puedas retomarlas cuando quieras.",
+            "- Para generar las respuestas se envían al proveedor de "
+            "inteligencia artificial (Groq) los fragmentos pertinentes de tu "
+            "documentación. Esa información no se utiliza para entrenar modelos.",
+            "- No compartimos tus datos con terceros ni los usamos con fines "
+            "comerciales.",
+            "- Puedes solicitar el acceso, la rectificación o la eliminación "
+            "de tus datos en cualquier momento.",
+        ]
+    )
 
 
 def format_no_answer(response: RAGResponse) -> str:
