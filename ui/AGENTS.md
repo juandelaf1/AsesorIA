@@ -9,7 +9,8 @@ otras personas ni sobre el backend.
 - Persona 4 — Frontend & UX.
 - Archivos de este ámbito: `ui/app.py`, `ui/contracts.py`,
   `ui/formatters.py`, `ui/rag_adapter.py`, `ui/mock_rag.py`,
-  `ui/guidance.py`, `ui/public/`, tests de frontend y documentación UX.
+  `ui/guidance.py`, `ui/rate_limit.py`, `ui/persistence.py`,
+  `ui/public/`, tests de frontend y documentación UX.
 - Fuera de este ámbito (NO tocar): `src/ingestion/`, `src/indexing/`,
   `src/retrieval/`, `src/rag/`, embeddings, Chroma/vector DB, chunking,
   prompts, LLM, pipeline RAG, persistencia backend, autenticación backend,
@@ -70,8 +71,19 @@ Tras cualquier cambio de frontend:
 python -m pytest tests/ -q
 ```
 
+E2E (Playwright + axe sobre la instancia mock; sin secretos):
+
+```bash
+$env:E2E='1'; python -m pytest tests/e2e -q
+```
+
 Objetivo: 0 fallos. No modificar tests existentes para hacerlos pasar:
 si un cambio rompe un test, el cambio es el que está mal.
+
+Reglas de UX con tests propios: el aviso de privacidad
+(`tests/test_frontend_privacy.py`) y el límite de mensajes por sesión
+(`tests/test_frontend_rate_limit.py`); respetar ambos al tocar la bienvenida
+o `_handle_message`.
 
 ## Copy
 
@@ -81,14 +93,17 @@ si un cambio rompe un test, el cambio es el que está mal.
 
 ## Git
 
-- Trabajar en `feature/frontend` (nunca directamente sobre `main`).
-- Antes de cambios: `git status`. Al finalizar: `git diff` + tests.
-- No hacer commits gigantes ni reescrituras innecesarias.
+- Trabajo directo sobre `main` (repo personal, un solo desarrollador).
+- Antes de cambios: `git status`. Al finalizar: `git diff` + tests en verde.
+- Commits pequeños por cambio lógico, mensaje en inglés estilo conventional
+  (`feat/`, `fix/`, `test/`, `docs/`).
+- Railway redespliega en cada push a `main`: empujar solo con CI verde.
 
 ## Skills de apoyo
 
 - `.agents/skills/frontend-ux/SKILL.md`
 - `.agents/skills/accessibility/SKILL.md`
 - `.agents/skills/modern-web/SKILL.md`
+- `.agents/skills/rag-ops/SKILL.md` (evaluación, backup, despliegue)
 - Modern Web Guidance es referencia del agente, NO dependencia runtime
   (nunca añadirlo a `requirements.txt` ni a `package.json`).

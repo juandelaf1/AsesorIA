@@ -4,7 +4,7 @@
 Procedimiento reusable para el coding agent (Persona 4) trabajando en el frontend de AsesorIA. Este skill encapsiona buenas prácticas, reglas de alcance y pasos reutilizables.
 
 ## 1. Inspeccionar antes de modificar
-1. Ejecutar `git status` y confirmar rama `feature/frontend` o equivalente.
+1. Ejecutar `git status` y confirmar la rama `main` (trabajo directo con suite verde).
 2. Revisar la estructura: `ui/`, `ui/public/`, `tests/`.
 3. Identificar el estado UX afectado (bienvenida, carga, chat, respuesta, fuentes, error).
 4. Confirmar que no se toca `src/`, backend, ingesta, vectorstore, embeddings, retrieval, prompts, LLM.
@@ -20,6 +20,8 @@ Estados posibles:
 - Respuesta con fuentes
 - No hay información suficiente (`ℹ️ No he encontrado información suficiente`)
 - Error técnico (`⚠️ Se ha producido un error técnico`)
+- Mensaje limitado por ritmo de sesión (aviso de espera, `ui/rate_limit.py`)
+- Aviso de privacidad abierto (`format_privacy_notice`)
 - Nueva pregunta
 
 ## 3. Conservar arquitectura
@@ -55,13 +57,15 @@ Estados posibles:
 ## 7. Ejecutar tests
 ```bash
 python -m pytest tests/ -q
+$env:E2E='1'; python -m pytest tests/e2e -q
 ```
-Objetivo: 0 fallos.
+Objetivo: 0 fallos en ambas suites (la E2E levanta su instancia mock,
+sin secretos y sin red externa).
 
 Cuando proceda:
-- `playwright test` (si está configurado).
 - `pytest --cov` para cobertura.
-- Revisar específicamente `test_native_ux.py` y `test_frontend_contract.py`.
+- Revisar específicamente `test_native_ux.py`, `test_frontend_contract.py`,
+  `test_frontend_rate_limit.py` y `test_frontend_privacy.py`.
 
 ## 8. Revisar visualmente
 - Levantar `chainlit run app.py` en `localhost:8000`.
