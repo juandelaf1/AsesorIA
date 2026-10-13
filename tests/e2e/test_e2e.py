@@ -41,6 +41,16 @@ def _wait_answer(pg, timeout: int = 30000):
     pg.get_by_text(DEMO_FOOTER, exact=False).first.wait_for(timeout=timeout)
 
 
+def _wait_answer_count(pg, count: int, timeout: int = 30000):
+    """Waits until at least ``count`` mock answers are on screen."""
+    pg.wait_for_function(
+        """([needle, count]) => document.body.innerText.toLowerCase()
+             .split(needle).length - 1 >= count""",
+        arg=[DEMO_FOOTER.lower(), count],
+        timeout=timeout,
+    )
+
+
 def _run_axe(pg) -> list:
     pg.add_script_tag(path=str(AXE))
     result = pg.evaluate(
@@ -86,6 +96,27 @@ class TestSmoke:
         page.get_by_text(WELCOME).first.wait_for(state="visible", timeout=30000)
         ta = page.locator(COMPOSER).first
         ta.wait_for(state="visible", timeout=30000)
+        assert ta.is_editable()
+
+
+class TestConversation:
+    def test_two_questions_in_a_row_both_get_answered(self, page, base_url):
+        """Multi-turn smoke: two questions, two answers, composer usable.
+
+        Guards the normal conversation path against the per-session burst
+        throttle (ui/rate_limit.py): a human-paced exchange must never trip
+        the gate, and both mock answers must render end-to-end.
+        """
+        _open(page, base_url)
+        _ask(page)
+        _wait_answer(page)
+
+        follow_up = "¿Qué tipo de IVA se aplica a la hostelería?"
+        _ask(page, follow_up)
+        assert page.get_by_text(follow_up, exact=False).first.is_visible(timeout=30000)
+        _wait_answer_count(page, 2)
+
+        ta = page.locator(COMPOSER).first
         assert ta.is_editable()
 
 
