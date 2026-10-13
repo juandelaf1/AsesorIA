@@ -104,7 +104,7 @@ Fecha: 2026-10-13 · commit `8a2f17f` · Windows, Python del entorno local (mini
 | P1 | E2E en CI + smoke de contenedor | `PASS` (commit `2371679`, run #7) |
 | P2 | Evaluación RAG (recuperación + generación) e informe de colección | `PARTIAL` — recuperación completa; generación 1/2 muestras (cuota Groq) |
 | P3 | Backup/restore SQLite, dependencias, rate limiting, aviso de privacidad | `PASS` (volumen Railway `BLOCKED`) |
-| P4 | Tests conversacionales extremo a extremo | `NOT RUN` |
+| P4 | Tests conversacionales extremo a extremo | `PASS` (E2E multi-turno `524ce89`; muestra Groq automatizada `BLOCKED` por cuota) |
 | P5 | `AGENTS.md`/skills, README e informe final | `NOT RUN` |
 | FASE FINAL | Revisión de release | `NOT RUN` |
 
@@ -138,7 +138,9 @@ Benchmark: 40 preguntas revisadas contra el corpus real (30 con referencia de do
 
 - Fallo documental @8: solo `corpus_384_48` (q15, base mínima tramo 1); `256_32` y `480_64`: 0 fallos.
 - Resultados crudos: `chroma_db/corpus_runs/ae121e06…/evaluations/20261013T1149…` (fuera de git).
-- Lectura: `corpus_384_48` es la **peor** de las tres (menos doc hits, ~50 % más tokens que `256_32`). `corpus_256_32` domina en coste con la misma cobertura documental que `480_64`. Falta decisión + cambio de referencia en `render.yaml`/`railway.json` y re-verificación.
+- Lectura: `corpus_384_48` es la **peor** de las tres (menos doc hits, ~50 % más tokens que `256_32`). `corpus_256_32` domina en coste con la misma cobertura documental que `480_64`.
+
+**Decisión (`e4e7697`)**: la app por defecto ya apuntaba a `corpus_256_32` (`src/common/settings.py:36`), y Railway (producción) la usa. Solo `render.yaml` la sobreescribía con la peor (`corpus_384_48`); el blueprint queda alineado con la evidencia. Confirmación de generación pendiente de la cuota Groq (§8.2); no bloquea porque la colección solo afecta al retrieval y la cobertura documental de `256_32` es igual o mejor.
 
 ### 8.2 Generación — `scripts/evaluate_rag_mlflow.py --limit 12 --judge` (Groq real)
 
@@ -175,3 +177,11 @@ Muestra: primeras 12 preguntas · modelo `openai/gpt-oss-120b` · juez LLM (fait
 | Volumen Railway | `BLOCKED` (sin acceso al dashboard) |
 | Rate limiting por sesión/IP | `PASS` (`6d414c3`) — 10 msg/min por sesión, ventana deslizante, env-tunable, aviso amable en español; 9 tests |
 | Aviso de privacidad en la UI | `PASS` (`ddd0c2b`) — botón **Privacidad** en la bienvenida con copy llano (qué datos, Google, Groq, no entrenamiento, no cesión, derechos); 4 tests |
+
+---
+
+## 10. P4 — Tests conversacionales extremo a extremo — `PASS` (`524ce89`)
+
+- **E2E navegador**: nuevo `test_two_questions_in_a_row_both_get_answered` — dos preguntas seguidas, dos respuestas mock, composer usable; además fija que el throttle de sesión (P3.5) no corta una conversación con ritmo humano (6/6 E2E).
+- **Unitario (ya existente, verificado)**: 24 tests de conversational RAG (rewriting, ventana de 20 turnos, no mutación del historial, fallos del rewriter sin inventar), 18 de transporte de historial por el adapter y reenvío engine→pipeline.
+- **LLM real multi-turno**: validado manualmente el 2026-10-08 (`data/eval/manual_smoke.md` §B: cadenas B1/B2 con encadenamiento y cálculo). La réplica automatizada con Groq real queda `BLOCKED` por la cuota diaria (§8.2); se ejecutará al abrir la ventana.
