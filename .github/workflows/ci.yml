@@ -47,6 +47,51 @@ jobs:
           GROQ_API_KEY: "gsk_mock_ci_testing_key"
         run: python -m pytest tests/ -q
 
+  # E2E (Playwright + axe) en modo mock: el conftest arranca su propia
+  # instancia de Chainlit con OAuth/GROQ forzados a vacío, así que el job
+  # no necesita secretos ni servicios externos. Va en invocación propia:
+  # la API síncrona de Playwright deja estado de bucle que rompe los tests
+  # de pytest-asyncio de `tests/` si se recolectan en la misma sesión.
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          # Misma versión mayor con la que se valida la imagen Docker.
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies (CPU torch, same as Dockerfile)
+        run: |
+          python -m pip install --upgrade pip
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio playwright
+
+      - name: Install Chromium
+        run: playwright install --with-deps chromium
+
+      - name: Run E2E suite (spawns its own mock instance)
+        env:
+          GROQ_API_KEY: "gsk_mock_ci_testing_key"
+          E2E: "1"
+        run: python -m pytest tests/e2e -q
+
+      - name: Upload screenshots of failed E2E tests
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts
+          path: tests/e2e/artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
+
   docker:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -57,14 +102,49 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      # load: true deja la imagen en el demonio de Docker del runner para
+      # el smoke test; push sigue en false (esta job nunca publica).
       - name: Build image (validates Dockerfile; never pushed)
         uses: docker/build-push-action@v6
         with:
           context: .
           push: false
+          load: true
           tags: asesoria:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # Smoke de arranque: verifica construcción + proceso + /health.
+      # NO prueba el RAG (sin corpus, sin OAuth, sin clave LLM real).
+      # El arranque no requiere corpus: ui/ no abre Chroma hasta la
+      # primera consulta (import perezoso en ui/rag_adapter.py).
+      - name: Start container and wait for /health
+        run: |
+          set -euo pipefail
+          docker run -d --name asesoria-smoke -p 8000:8000 asesoria:ci
+          ok=0
+          for i in $(seq 1 36); do
+            if curl -fsS http://127.0.0.1:8000/health; then
+              ok=1
+              break
+            fi
+            echo "waiting for /health (${i}/36)..."
+            sleep 5
+          done
+          if [ "$ok" != "1" ]; then
+            echo "::error::/health never became ready in 180s"
+            exit 1
+          fi
+          echo ""
+          echo "smoke: /health OK"
+
+      - name: Container logs (diagnosis)
+        if: always()
+        run: docker logs asesoria-smoke || true
+
+      - name: Cleanup container
+        if: always()
+        run: docker rm -f asesoria-smoke || true
 
   docs:
     runs-on: ubuntu-latest
@@ -89,13 +169,14 @@ jobs:
       - name: Build documentation site (Docusaurus)
         run: npm run build
 
-  # CD ligera: solo en push a main, tras test + docker. Publica la imagen
+  # CD ligera: solo en push a main, tras test + e2e + docker + docs.
+  # Publica la imagen
   # en GHCR con tag sha-<commit> para despliegues trazables (Render) y,
   # si existen los secrets de Docker Hub (DOCKERHUB_USERNAME/DOCKERHUB_TOKEN),
   # también en hub.docker.com/juandelaf/asesoria.
   publish:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [test, docker, docs]
+    needs: [test, e2e, docker, docs]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
