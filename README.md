@@ -241,7 +241,7 @@ Capas auxiliares (fuera del flujo principal): **Docker** · **CI/CD (GitHub Acti
 | CI/CD | GitHub Actions | Tests, build de imagen, docs |
 | Registry | GHCR | Imágenes de contenedor |
 | Deployment | Railway (activo) · Render (blueprint) | Cloud runtime |
-| Documentation | Docusaurus | Sitio técnico (`docs-site/`) |
+| Documentation | Docusaurus + caso de estudio | Sitio técnico (`docs-site/`) · [`docs/case-study.md`](docs/case-study.md) |
 | Observability | MLflow | Tracing y evaluación RAG |
 
 ## Cómo se valida
@@ -1409,7 +1409,7 @@ npm run start    # http://localhost:3000
 npm run build    # build de producción
 ```
 
-División de responsabilidades: este README = presentación rápida; Docusaurus = documentación profunda.
+División de responsabilidades: este README = presentación rápida; Docusaurus = documentación profunda; caso de estudio técnico = [`docs/case-study.md`](docs/case-study.md).
 
 ## 25.6 Observabilidad y evaluación con MLflow
 
@@ -1591,7 +1591,7 @@ Supporting layers (outside the main flow): **Docker** · **CI/CD (GitHub Actions
 | CI/CD | GitHub Actions | Tests, image build, docs |
 | Registry | GHCR | Container images |
 | Deployment | Railway (active) · Render (blueprint) | Cloud runtime |
-| Documentation | Docusaurus | Technical site (`docs-site/`) |
+| Documentation | Docusaurus + technical case study | Technical site (`docs-site/`) · [`docs/case-study.md`](docs/case-study.md) |
 | Observability | MLflow | Tracing and RAG evaluation |
 
 ## How it is validated
@@ -2748,7 +2748,7 @@ npm run start    # http://localhost:3000
 npm run build    # production build
 ```
 
-Division of responsibilities: this README = quick presentation; Docusaurus = deep documentation.
+Division of responsibilities: this README = quick presentation; Docusaurus = deep documentation; technical case study = [`docs/case-study.md`](docs/case-study.md).
 
 ## 25.6 Observability and evaluation with MLflow
 
